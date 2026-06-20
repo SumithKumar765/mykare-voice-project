@@ -1,7 +1,9 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
+from livekit import api
 
 from app.db import (
     identify_user_db,
@@ -64,7 +66,20 @@ async def cancel_appointment(appointment_id: str):
 async def modify_appointment(appointment_id: str, req: ModifyAppointmentReq):
     return await modify_appointment_db(appointment_id, req.new_date, req.new_time)
 
-# Health Check Route
+# --- LiveKit Token Generation ---
+@app.get("/get-token")
+async def get_token(room_name: str = "mykare-clinic-room", participant_name: str = "Caller"):
+    """Generates a secure WebRTC token for the frontend to connect."""
+    token = api.AccessToken(
+        os.getenv("LIVEKIT_API_KEY"), 
+        os.getenv("LIVEKIT_API_SECRET")
+    )
+    token.with_identity(participant_name).with_name(participant_name)
+    token.with_grants(api.VideoGrants(room_join=True, room=room_name))
+    
+    return {"token": token.to_jwt()}
+
+# --- Health Check Route ---
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Mykare Backend is Live!"}
