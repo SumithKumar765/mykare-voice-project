@@ -2,7 +2,7 @@ import os
 import json
 from livekit.agents import JobContext, llm, WorkerOptions, cli
 from livekit.agents.pipeline import VoicePipelineAgent
-from livekit.plugins import deepgram, cartesia, openai, silero
+from livekit.plugins import deepgram, cartesia, openai, silero # Switched back to openai
 from app.db import (
     identify_user_db, fetch_slots_db, book_appointment_db,
     retrieve_appointments_db, cancel_appointment_db, modify_appointment_db
@@ -55,11 +55,11 @@ async def entrypoint(ctx: JobContext):
     agent = VoicePipelineAgent(
         vad=silero.VAD.load(),
         stt=deepgram.STT(),
-        # We use the standard OpenAI plugin, but route it to Google's Gemini endpoint
+        # Use the standard OpenAI plugin, but route it to Groq's lightning-fast API
         llm=openai.LLM(
-            model="gemini-1.5-flash", 
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/", 
-            api_key=os.getenv("GEMINI_API_KEY")
+            base_url="https://api.groq.com/openai/v1",
+            api_key=os.getenv("GROQ_API_KEY"),
+            model="llama-3.3-70b-versatile" 
         ),
         tts=cartesia.TTS(),
         fnc_ctx=fnc_ctx,
