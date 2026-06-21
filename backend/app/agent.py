@@ -1,9 +1,15 @@
+import sys
 import os
 import json
 import asyncio
 import logging
+import aiohttp
 
-# Silence the noisy background network logs
+# FORCE WINDOWS TO USE SELECTOR EVENT LOOP (Prevents WinError 10054 Connection Resets)
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# Silence noisy background network logs
 logging.getLogger("hpack").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -22,7 +28,6 @@ class ClinicAssistant(llm.FunctionContext):
         self.room = room
 
     async def broadcast_ui_status(self, state: str, message: str):
-        """Sends live status updates directly to the frontend UI panel."""
         payload = json.dumps({"status": state, "msg": message})
         await self.room.local_participant.publish_data(payload)
 
@@ -79,44 +84,70 @@ class ClinicAssistant(llm.FunctionContext):
             await self.broadcast_ui_status("success", f"Rescheduled to {new_date} at {new_time} ✅")
         return json.dumps(result)
 
-async def entrypoint(ctx: JobContext):
-    """The main entrypoint that runs when a user connects via the frontend."""
+# --- AVATAR INTEGRATION (SIMLI) ---
+async def invite_avatar_to_room(room_name: str):
+    """Triggers the Simli visual avatar to join your LiveKit room."""
+    print("🤖 Inviting Visual Avatar to the room via Simli...")
+    
+    simli_api_url = "https://api.simli.ai/startAudioToVideoSession" 
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    from livekit import api
+    avatar_token = api.AccessToken(os.getenv("LIVEKIT_API_KEY"), os.getenv("LIVEKIT_API_SECRET"))
+    grant = api.VideoGrants(room=room_name, room_join=True, can_publish=True, can_subscribe=True)
+    avatar_token.with_identity("Simli_Avatar").with_name("Receptionist").with_grants(grant)
+    
+    # Payload matching Simli API expectations (apiKey inside the body)
+    payload = {
+        "apiKey": os.getenv("SIMLI_API_KEY", ""),
+        "faceId": "dd10cb5a-d31d-4f12-b69f-6db3383c006e", 
+        "isLivekit": True,
+        "syncAudio": True,
+        "livekitUrl": os.getenv("LIVEKIT_URL"),
+        "livekitToken": avatar_token.to_jwt()
+    }
+    
     try:
-        await ctx.connect()
-        print(f"🔗 Connected to WebRTC Room: {ctx.room.name}")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(simli_api_url, json=payload, headers=headers) as response:
+                if response.status in [200, 201]:
+                    print("✅ Avatar successfully triggered and is joining the room!")
+                else:
+                    error_data = await response.text()
+                    print(f"⚠️ Avatar API returned an error: {error_data}")
+    except Exception as e:
+        print(f"❌ Failed to reach Avatar API: {e}")
+
+async def entrypoint(ctx: JobContext):
+    """Main execution loop triggered when the user connects from the frontend."""
+    try:
+        # Connection retry loop
+        while True:
+            try:
+                print("🔗 Connecting to LiveKit server room...")
+                await ctx.connect()
+                print(f"✅ Connected to WebRTC Room: {ctx.room.name}")
+                break
+            except Exception as conn_err:
+                print(f"⚠️ Connection failed: {conn_err}. Retrying in 2 seconds...")
+                await asyncio.sleep(2)
 
         fnc_ctx = ClinicAssistant(ctx.room)
 
-        # 1. Primary Model (Smartest)
-        primary_llm = openai.LLM(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=os.getenv("GROQ_API_KEY"),
-            model="llama-3.3-70b-versatile" 
-        )
-        
-        # 2. First Fallback (Fastest, Actively Supported)
-        backup_llm_1 = openai.LLM(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=os.getenv("GROQ_API_KEY"),
-            model="llama-3.1-8b-instant" 
-        )
-
-        # 3. Second Fallback (Reliable Backup, Actively Supported)
-        backup_llm_2 = openai.LLM(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=os.getenv("GROQ_API_KEY"),
-            model="gemma2-9b-it" 
-        )
+        primary_llm = openai.LLM(base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY"), model="llama-3.3-70b-versatile")
+        backup_llm_1 = openai.LLM(base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY"), model="llama-3.1-8b-instant")
+        backup_llm_2 = openai.LLM(base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY"), model="gemma2-9b-it")
 
         print("📡 Initializing audio pipeline components...")
         print(f"🎤 STT: Deepgram (API key: {'✓' if os.getenv('DEEPGRAM_API_KEY') else '✗'})")
         print(f"🔊 TTS: Cartesia (API key: {'✓' if os.getenv('CARTESIA_API_KEY') else '✗'})")
 
-        # Build the real-time AI pipeline 
         agent = VoicePipelineAgent(
-            vad=silero.VAD.load(min_silence_duration=0.5),  # Adjust VAD sensitivity for natural conversation flow
+            vad=silero.VAD.load(min_silence_duration=0.5),  
             stt=deepgram.STT(),
-            # Seamlessly hot-swap the LLMs if a limit or error is hit
             llm=llm.FallbackAdapter([primary_llm, backup_llm_1, backup_llm_2]),
             tts=cartesia.TTS(voice="65209f8e-6140-4a20-b819-3cc2e21da19b"),
             fnc_ctx=fnc_ctx,
@@ -138,15 +169,20 @@ async def entrypoint(ctx: JobContext):
         agent.start(ctx.room)
         print("✅ Agent started successfully!")
         
+        # Trigger Simli Avatar if key exists in .env
+        if os.getenv("SIMLI_API_KEY"):
+            asyncio.create_task(invite_avatar_to_room(ctx.room.name))
+        else:
+            print("⚠️ SIMLI_API_KEY not found in .env. Skipping avatar invitation.")
+        
         await agent.say("Hi, this is the Mykare Clinic assistant. Who do I have the pleasure of speaking with today?", allow_interruptions=True)
         print("🎵 Initial greeting sent!")
 
-        # Safely wait for the user to disconnect without crashing
         disconnect_event = asyncio.Event()
         ctx.room.on("disconnected", lambda: disconnect_event.set())
         await disconnect_event.wait()
             
-        print("👋 User disconnected. Ready to trigger call log summary generation.")
+        print("👋 User disconnected. Call log session finished.")
     
     except Exception as e:
         print(f"❌ CRITICAL ERROR in entrypoint: {str(e)}")

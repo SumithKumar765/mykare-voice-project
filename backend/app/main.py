@@ -1,3 +1,10 @@
+import sys
+import asyncio
+
+# FORCE WINDOWS TO USE SELECTOR EVENT LOOP (Prevents WinError 10054 Connection Resets)
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,7 +13,7 @@ from typing import Optional
 from livekit import api
 from dotenv import load_dotenv
 
-# Actually load the .env variables into the OS!
+# Actually load the .env variables into the OS
 load_dotenv() 
 
 from app.db import (
@@ -44,7 +51,6 @@ class ModifyAppointmentReq(BaseModel):
     new_time: str
 
 # --- Core API Endpoints ---
-
 @app.post("/users/identify")
 async def identify_user(req: IdentifyUserReq):
     return await identify_user_db(req.phone_number, req.name)
@@ -70,7 +76,6 @@ async def modify_appointment(appointment_id: str, req: ModifyAppointmentReq):
     return await modify_appointment_db(appointment_id, req.new_date, req.new_time)
 
 # --- LiveKit Token Generation ---
-# FIXED: Changed route to match the frontend fetch request
 @app.get("/get-token") 
 async def get_token(room_name: str = "mykare-clinic-room", participant_name: str = "Caller"):
     """Generates a secure WebRTC token for the frontend to connect."""
@@ -84,7 +89,6 @@ async def get_token(room_name: str = "mykare-clinic-room", participant_name: str
     
     return {"token": token.to_jwt()}
 
-# --- Health Check Route ---
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Mykare Backend is Live!"}
