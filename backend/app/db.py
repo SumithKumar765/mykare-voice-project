@@ -10,15 +10,47 @@ async def identify_user_db(phone_number: str, name: str = None):
     # Normalize phone number (strip everything except digits)
     normalized_phone = "".join(filter(str.isdigit, phone_number))
     
-    # Check if user exists
+    # 1. Search for the existing user in Supabase
     res = supabase.table("users").select("*").eq("phone_number", normalized_phone).execute()
-    if res.data:
-        return {"user_id": res.data[0]["id"], "name": res.data[0]["name"], "is_new_user": False}
-    
-    # Create new user
-    new_user = {"phone_number": normalized_phone, "name": name or "Unknown"}
-    ins_res = supabase.table("users").insert(new_user).execute()
-    return {"user_id": ins_res.data[0]["id"], "name": ins_res.data[0]["name"], "is_new_user": True}
+
+    # 2. IF THE USER EXISTS:
+    if res.data and len(res.data) > 0:
+        existing_user = res.data[0]
+        
+        # Auto-Correction: If the database name is "unknown" but the AI just captured their real name, update it!
+        if name and existing_user.get("name") in ["unknown", "Unknown", None]:
+            update_resp = supabase.table('users').update({"name": name}).eq('id', existing_user["id"]).execute()
+            existing_user = update_resp.data[0]
+
+        return {
+            "user_id": existing_user["id"],
+            "name": existing_user["name"],
+            "is_new_user": False,
+            "status": "Found existing user"
+        }
+        
+    # 3. IF THE USER DOES NOT EXIST:
+    else:
+        # The Gatekeeper: If the AI hasn't captured a name yet, force it to ask the user
+        if not name:
+            return {
+                "error": "User not found. You must ask the caller for their full name to register them."
+            }
+
+        # The Creation: If the AI has the name, insert the brand new user into Supabase!
+        new_user_data = {
+            "phone_number": normalized_phone,
+            "name": name
+        }
+        insert_response = supabase.table('users').insert(new_user_data).execute()
+        new_user = insert_response.data[0]
+
+        return {
+            "user_id": new_user["id"],
+            "name": new_user["name"],
+            "is_new_user": True,
+            "status": "Created new user"
+        }
 
 async def fetch_slots_db(date_str: str = None):
     """Returns mock available slots, filtering out ones already booked in the DB."""
