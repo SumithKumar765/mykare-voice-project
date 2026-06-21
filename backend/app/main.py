@@ -4,6 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from livekit import api
+from dotenv import load_dotenv
+
+# Actually load the .env variables into the OS!
+load_dotenv() 
 
 from app.db import (
     identify_user_db,
@@ -26,7 +30,6 @@ app.add_middleware(
 )
 
 # --- Request Data Models ---
-# Pydantic validates incoming data automatically before it hits your DB
 class IdentifyUserReq(BaseModel):
     phone_number: str
     name: Optional[str] = None
@@ -67,15 +70,17 @@ async def modify_appointment(appointment_id: str, req: ModifyAppointmentReq):
     return await modify_appointment_db(appointment_id, req.new_date, req.new_time)
 
 # --- LiveKit Token Generation ---
-@app.get("/get-token")
+# FIXED: Changed route to match the frontend fetch request
+@app.get("/get-token") 
 async def get_token(room_name: str = "mykare-clinic-room", participant_name: str = "Caller"):
     """Generates a secure WebRTC token for the frontend to connect."""
     token = api.AccessToken(
         os.getenv("LIVEKIT_API_KEY"), 
         os.getenv("LIVEKIT_API_SECRET")
     )
-    token.with_identity(participant_name).with_name(participant_name)
-    token.with_grants(api.VideoGrants(room_join=True, room=room_name))
+    
+    grant = api.VideoGrants(room=room_name, room_join=True)
+    token.with_identity(participant_name).with_name(participant_name).with_grants(grant)
     
     return {"token": token.to_jwt()}
 
@@ -83,3 +88,7 @@ async def get_token(room_name: str = "mykare-clinic-room", participant_name: str
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Mykare Backend is Live!"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

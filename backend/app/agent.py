@@ -81,63 +81,78 @@ class ClinicAssistant(llm.FunctionContext):
 
 async def entrypoint(ctx: JobContext):
     """The main entrypoint that runs when a user connects via the frontend."""
-    await ctx.connect()
-    print(f"🔗 Connected to WebRTC Room: {ctx.room.name}")
+    try:
+        await ctx.connect()
+        print(f"🔗 Connected to WebRTC Room: {ctx.room.name}")
 
-    fnc_ctx = ClinicAssistant(ctx.room)
+        fnc_ctx = ClinicAssistant(ctx.room)
 
-    # 1. Primary Model (Smartest)
-    primary_llm = openai.LLM(
-        base_url="https://api.groq.com/openai/v1",
-        api_key=os.getenv("GROQ_API_KEY"),
-        model="llama-3.3-70b-versatile" 
-    )
-    
-    # 2. First Fallback (Fastest, Actively Supported)
-    backup_llm_1 = openai.LLM(
-        base_url="https://api.groq.com/openai/v1",
-        api_key=os.getenv("GROQ_API_KEY"),
-        model="llama-3.1-8b-instant" 
-    )
+        # 1. Primary Model (Smartest)
+        primary_llm = openai.LLM(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=os.getenv("GROQ_API_KEY"),
+            model="llama-3.3-70b-versatile" 
+        )
+        
+        # 2. First Fallback (Fastest, Actively Supported)
+        backup_llm_1 = openai.LLM(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=os.getenv("GROQ_API_KEY"),
+            model="llama-3.1-8b-instant" 
+        )
 
-    # 3. Second Fallback (Reliable Backup, Actively Supported)
-    backup_llm_2 = openai.LLM(
-        base_url="https://api.groq.com/openai/v1",
-        api_key=os.getenv("GROQ_API_KEY"),
-        model="gemma2-9b-it" 
-    )
+        # 3. Second Fallback (Reliable Backup, Actively Supported)
+        backup_llm_2 = openai.LLM(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=os.getenv("GROQ_API_KEY"),
+            model="gemma2-9b-it" 
+        )
 
-    # Build the real-time AI pipeline 
-    agent = VoicePipelineAgent(
-        vad=silero.VAD.load(min_silence_duration=0.5),  # Adjust VAD sensitivity for natural conversation flow
-        stt=deepgram.STT(),
-        # Seamlessly hot-swap the LLMs if a limit or error is hit
-        llm=llm.FallbackAdapter([primary_llm, backup_llm_1, backup_llm_2]),
-        tts=cartesia.TTS(voice="65209f8e-6140-4a20-b819-3cc2e21da19b"),
-        fnc_ctx=fnc_ctx,
-        chat_ctx=llm.ChatContext().append(
-            role="system",
-            text=(
-                "You are a polite, efficient healthcare receptionist at Mykare Clinic. "
-                "Keep responses brief and highly conversational (1-2 sentences maximum). "
-                "Rule 1: Always ask for the caller's name FIRST. "
-                "Rule 2: Once they provide their name, acknowledge it and then ask for their phone number. Do not ask for both at the same time. "
-                "Rule 3: Always confirm phone numbers digit-by-digit before executing the identify_user tool. "
-                "CRITICAL RULE 1: NEVER speak raw JSON, markdown, or <function> tags aloud. When you need to use a tool, execute it silently without narrating the code. "
-                "CRITICAL RULE 2: NEVER speak database UUIDs, appointment IDs, or user IDs aloud to the caller. Simply confirm the action naturally."
+        print("📡 Initializing audio pipeline components...")
+        print(f"🎤 STT: Deepgram (API key: {'✓' if os.getenv('DEEPGRAM_API_KEY') else '✗'})")
+        print(f"🔊 TTS: Cartesia (API key: {'✓' if os.getenv('CARTESIA_API_KEY') else '✗'})")
+
+        # Build the real-time AI pipeline 
+        agent = VoicePipelineAgent(
+            vad=silero.VAD.load(min_silence_duration=0.5),  # Adjust VAD sensitivity for natural conversation flow
+            stt=deepgram.STT(),
+            # Seamlessly hot-swap the LLMs if a limit or error is hit
+            llm=llm.FallbackAdapter([primary_llm, backup_llm_1, backup_llm_2]),
+            tts=cartesia.TTS(voice="65209f8e-6140-4a20-b819-3cc2e21da19b"),
+            fnc_ctx=fnc_ctx,
+            chat_ctx=llm.ChatContext().append(
+                role="system",
+                text=(
+                    "You are a polite, efficient healthcare receptionist at Mykare Clinic. "
+                    "Keep responses brief and highly conversational (1-2 sentences maximum). "
+                    "Rule 1: Always ask for the caller's name FIRST. "
+                    "Rule 2: Once they provide their name, acknowledge it and then ask for their phone number. Do not ask for both at the same time. "
+                    "Rule 3: Always confirm phone numbers digit-by-digit before executing the identify_user tool. "
+                    "CRITICAL RULE 1: NEVER speak raw JSON, markdown, or <function> tags aloud. When you need to use a tool, execute it silently without narrating the code. "
+                    "CRITICAL RULE 2: NEVER speak database UUIDs, appointment IDs, or user IDs aloud to the caller. Simply confirm the action naturally."
+                )
             )
         )
-    )
 
-    agent.start(ctx.room)
-    await agent.say("Hi, this is the Mykare Clinic assistant. Who do I have the pleasure of speaking with today?", allow_interruptions=True)
-
-    # Safely wait for the user to disconnect without crashing
-    disconnect_event = asyncio.Event()
-    ctx.room.on("disconnected", lambda: disconnect_event.set())
-    await disconnect_event.wait()
+        print("🎙️ Starting voice agent...")
+        agent.start(ctx.room)
+        print("✅ Agent started successfully!")
         
-    print("👋 User disconnected. Ready to trigger call log summary generation.")
+        await agent.say("Hi, this is the Mykare Clinic assistant. Who do I have the pleasure of speaking with today?", allow_interruptions=True)
+        print("🎵 Initial greeting sent!")
+
+        # Safely wait for the user to disconnect without crashing
+        disconnect_event = asyncio.Event()
+        ctx.room.on("disconnected", lambda: disconnect_event.set())
+        await disconnect_event.wait()
+            
+        print("👋 User disconnected. Ready to trigger call log summary generation.")
+    
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR in entrypoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
