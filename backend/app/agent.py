@@ -174,6 +174,6 @@ if __name__ == "__main__":
     # Start the dummy HTTP server in a side thread to satisfy Render's port binding requirement
     threading.Thread(target=run_http_server, daemon=True).start()
     
-    # Run the LiveKit runner on the main thread
-    sys.argv = ["dummy_args", "start"]
+    # Safely clear out any extra arguments and pass 'start' to the LiveKit CLI wrapper
+    sys.argv = [sys.argv[0], "start"]
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
