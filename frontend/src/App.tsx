@@ -81,7 +81,7 @@ export default function App() {
     // Allow time for backend to write call logs before fetching
     setTimeout(async () => {
       try {
-        const { data } = await supabase.from('call_logs').select('summary').order('id', { ascending: false }).limit(1).single();
+        const { data } = await supabase.from('call_logs').select('summary').order('id', { ascending: false }).limit(1).maybeSingle();
         if (data?.summary) {
           setSummaryData(data.summary as SummaryData);
           setCallState('summary_ready');
