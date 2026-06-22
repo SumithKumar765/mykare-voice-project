@@ -1,4 +1,4 @@
-import React from 'react';
+
 
 // EXPORT ADDED HERE: Defines the shape of a single appointment
 export interface Appointment {
