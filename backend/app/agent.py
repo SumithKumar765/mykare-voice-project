@@ -159,6 +159,7 @@ def run_http_server():
     uvicorn.run(dummy_app, host="0.0.0.0", port=port)
 
 # --- SINGLE, UNIFIED EXECUTION BLOCK ---
+# --- SINGLE, UNIFIED EXECUTION BLOCK ---
 if __name__ == "__main__":
     import threading
     # 1. Start the dummy HTTP server in a side thread to satisfy Render's port binding requirement
@@ -168,6 +169,13 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    # 3. Safely clear out any extra arguments and pass 'start' to the LiveKit CLI wrapper
+    # 3. Clean the arguments and force the 'start' command for the LiveKit runner
     sys.argv = ["agent.py", "start"]
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    
+    # 4. INCREASE INITIALIZATION TIMEOUT for Render's slower Free Tier CPU
+    options = WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        initialize_process_timeout=120.0
+    )
+    
+    cli.run_app(options)
