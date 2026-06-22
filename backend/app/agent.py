@@ -174,6 +174,13 @@ if __name__ == "__main__":
     # Start the dummy HTTP server in a side thread to satisfy Render's port binding requirement
     threading.Thread(target=run_http_server, daemon=True).start()
     
+    # Python 3.14 Fix: Explicitly create and set a new event loop for the main thread
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
     # Safely clear out any extra arguments and pass 'start' to the LiveKit CLI wrapper
     sys.argv = [sys.argv[0], "start"]
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
