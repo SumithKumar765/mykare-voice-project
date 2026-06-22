@@ -4,16 +4,8 @@ import json
 import asyncio
 import logging
 import aiohttp
-import sys
-import os
-import json
-import asyncio
-import logging
-import aiohttp
-from fastapi import FastAPI  # <-- Make sure this is here
-import uvicorn               # <-- Make sure this is here
-
-# ... your existing livekit and database imports ...
+from fastapi import FastAPI
+import uvicorn
 
 # FORCE WINDOWS TO USE SELECTOR EVENT LOOP
 if sys.platform == 'win32':
@@ -155,9 +147,6 @@ async def entrypoint(ctx: JobContext):
     finally:
         print("🏁 Call closed. Worker ready for next call.")
 
-if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
-
 # --- DUMMY HTTP SERVER FOR RENDER FREE TIER & CRON-JOB ---
 dummy_app = FastAPI()
 
@@ -169,18 +158,16 @@ def run_http_server():
     port = int(os.getenv("PORT", 8080))
     uvicorn.run(dummy_app, host="0.0.0.0", port=port)
 
+# --- SINGLE, UNIFIED EXECUTION BLOCK ---
 if __name__ == "__main__":
     import threading
-    # Start the dummy HTTP server in a side thread to satisfy Render's port binding requirement
+    # 1. Start the dummy HTTP server in a side thread to satisfy Render's port binding requirement
     threading.Thread(target=run_http_server, daemon=True).start()
     
-    # Python 3.14 Fix: Explicitly create and set a new event loop for the main thread
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    # 2. Python 3.14 Fix: Explicitly create and set a new event loop for the main thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     
-    # Safely clear out any extra arguments and pass 'start' to the LiveKit CLI wrapper
-    sys.argv = [sys.argv[0], "start"]
+    # 3. Safely clear out any extra arguments and pass 'start' to the LiveKit CLI wrapper
+    sys.argv = ["agent.py", "start"]
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
