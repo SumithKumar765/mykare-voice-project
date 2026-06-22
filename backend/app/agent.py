@@ -4,6 +4,16 @@ import json
 import asyncio
 import logging
 import aiohttp
+import sys
+import os
+import json
+import asyncio
+import logging
+import aiohttp
+from fastapi import FastAPI  # <-- Make sure this is here
+import uvicorn               # <-- Make sure this is here
+
+# ... your existing livekit and database imports ...
 
 # FORCE WINDOWS TO USE SELECTOR EVENT LOOP
 if sys.platform == 'win32':
@@ -146,4 +156,24 @@ async def entrypoint(ctx: JobContext):
         print("🏁 Call closed. Worker ready for next call.")
 
 if __name__ == "__main__":
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+
+# --- DUMMY HTTP SERVER FOR RENDER FREE TIER & CRON-JOB ---
+dummy_app = FastAPI()
+
+@dummy_app.get("/")
+def health_check():
+    return {"status": "agent_worker_active"}
+
+def run_http_server():
+    port = int(os.getenv("PORT", 8080))
+    uvicorn.run(dummy_app, host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    import threading
+    # Start the dummy HTTP server in a side thread to satisfy Render's port binding requirement
+    threading.Thread(target=run_http_server, daemon=True).start()
+    
+    # Run the LiveKit runner on the main thread
+    sys.argv = ["dummy_args", "start"]
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
