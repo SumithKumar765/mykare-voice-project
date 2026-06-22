@@ -107,7 +107,7 @@ async def entrypoint(ctx: JobContext):
         print(f"✅ Connected to: {ctx.room.name}")
 
         fnc_ctx = ClinicAssistant(ctx.room)
-        primary_llm = openai.LLM(base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY"), model="llama-3.1-8b-instant")
+        primary_llm = openai.LLM(base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY"), model="llama-3.3-70b-versatile")
         
         agent = VoicePipelineAgent(
             vad=silero.VAD.load(min_silence_duration=0.6),  
